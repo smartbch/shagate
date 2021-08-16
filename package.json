@@ -1,0 +1,17 @@
+{
+  "name": "cc_covenant",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "zxh0",
+  "license": "ISC",
+  "dependencies": {
+    "bitbox-sdk": "^8.11.2",
+    "cashc": "^0.6.4",
+    "cashscript": "^0.6.4",
+    "yargs": "^17.1.0"
+  }
+}

@@ -1,0 +1,44 @@
+pragma cashscript ^0.6.0;
+
+contract ccCovenant(bytes20 operatorAddrHash, bytes20 receiver, bytes4 yesnoBytes) {
+   function run(sig s, pubkey pk, bytes20 newReceiver, 
+      bytes20 operatorAddr0, bytes20 operatorAddr1, bytes20 operatorAddr2,
+      bytes coinbaseTx, bytes4 coinbaseVout, int position, bool agree, bool finish) {
+      require(checkSig(s, pk));
+      // update receiver and clear vote count
+      bytes newContract = 0x040000000014 + newReceiver + tx.bytecode.split(26)[1];// 5+21
+      int yesnoCount = int(yesnoBytes);
+      if(finish) { //finishUnlock
+         require(hash160(pk) == receiver);
+         require(tx.age >= 150); // nobody voted in last 150 blocks
+         require((yesnoCount/300000) >= (yesnoCount%30000));
+      } else {
+         if(position == 0) { // initUnlock
+            bytes20 addr = hash160(pk);
+            require(hash160(operatorAddr0+operatorAddr1+operatorAddr2) == operatorAddrHash);
+            require(addr == operatorAddr0 || addr == operatorAddr1 || addr == operatorAddr2);
+            // we want to ensure this utxo has been voted to stay or nobody voted in last 300 blocks
+            if((yesnoCount/300000) < (yesnoCount%30000)) {
+               require(tx.age >= 300);
+            }
+         } else { // Vote
+            // make sure only a miner can call this function
+            require(hash160(coinbaseTx.split(4)[1].split(37)[0]) == 0x282711cb97968c8674a46b5564ce3549f5782ea4);
+            require(hash256(tx.outpoint + hash256(coinbaseTx) + coinbaseVout) == tx.hashPrevouts);
+            require(coinbaseTx.split(position)[1].split(36)[0] == tx.outpoint);
+
+            if(agree) {
+               yesnoCount = yesnoCount + 30000;
+            } else {
+               yesnoCount = yesnoCount + 1;
+            }
+
+            // update vote count
+            newContract = 0x04 + bytes4(yesnoCount) + tx.bytecode.split(5)[1];
+         }
+         bytes8 amount = bytes8(int(bytes(tx.value)) - 2000); // 2000 is hardcoded fee
+         bytes32 out = new OutputP2SH(amount, hash160(newContract));
+         require(hash256(out) == tx.hashOutputs);
+      }
+   }
+}

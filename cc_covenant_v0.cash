@@ -1,0 +1,53 @@
+pragma cashscript ^0.6.0;
+
+contract ccCovenant(pubkey operKey0, pubkey operKey1, pubkey operKey2, pubkey receiver, bytes4 noBytes, bytes4 yesBytes) {
+   // initialize an unlocking proposal
+   function initUnlock(sig s, pubkey pk, bytes33 newReceiver) {
+      require(checkSig(s, pk));
+      require(pk == operKey0 || pk == operKey1 || pk == operKey2);
+      // we want to ensure this utxo has been voted to stay or nobody voted in last 300 blocks
+      // The following if-clause is actually requiring int(noBytes) > 30 || tx.age >= 300
+      if (int(noBytes) <= 30) {
+         require(tx.age >= 300);
+      }
+
+      // update receiver and clear vote count
+      bytes newContract = 0x0400000000040000000021 + newReceiver + tx.bytecode.split(44)[1];// 5+5+34
+      bytes8 amount = bytes8(int(bytes(tx.value)) - 1000); // 1000 is hardcoded fee
+      bytes32 out = new OutputP2SH(amount, hash160(newContract));
+      require(hash256(out) == tx.hashOutputs);
+   }
+
+   // miners vote for whether this utxo can be sent or not
+   function vote(sig s, pubkey pk, bytes coinbaseTx, bytes32 coinbaseTxID, bytes4 coinbaseVout, int position, bool agree) {
+      require(checkSig(s, pk)); //covenant need this statement
+      require(int(noBytes) < 30 && int(yesBytes) < 30); // no side reaches 30 votes
+      // make sure only a miner can call this function
+      require(coinbaseTx.split(41)[0] == 0x01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff);
+      require(hash256(coinbaseTx) == coinbaseTxID);
+      require(hash256(tx.outpoint + coinbaseTxID + coinbaseVout) == tx.hashPrevouts);
+      require(coinbaseTx.split(position)[1].split(36)[0] == tx.outpoint);
+
+      bytes4 noBytesUpdate = noBytes;
+      bytes4 yesBytesUpdate = yesBytes;
+      if(agree) {
+         yesBytesUpdate = bytes4(int(yesBytes) + 1);
+      } else {
+         noBytesUpdate = bytes4(int(noBytes) + 1);
+      }
+
+      // update vote count
+      bytes newContract = 0x04 + yesBytesUpdate +
+                          0x04 + noBytesUpdate + tx.bytecode.split(10)[1]; // 5+5
+      bytes8 amount = bytes8(int(bytes(tx.value)) - 1000); // 1000 is hardcoded fee
+      bytes32 out = new OutputP2SH(amount, hash160(newContract));
+      require(hash256(out) == tx.hashOutputs);
+   }
+
+   // finish the unlocking process
+   function finishUnlock(sig s) {
+      require(checkSig(s, receiver));
+      require(tx.age >= 150); // nobody voted in last 150 blocks
+      require(int(yesBytes) >= int(noBytes));
+   }
+}
