@@ -168,7 +168,7 @@ transaction details: {
 }
 ```
 
-Now the unlocking is waiting to be voted:
+Now the unlocking contract is waiting to be voted:
 
 ```bash
 $ ts-node cc_covenant_v1_testnet.ts printCCVoteInfo alice 0 0
@@ -247,7 +247,7 @@ transaction details: {
 }
 ```
 
-Let see miner0 again:
+Let‘s show miner0's info again:
 
 ```bash
 $ ts-node cc_covenant_v1_testnet.ts printMinerInfo
@@ -392,7 +392,6 @@ Wait 2 blocks, and Alice can get her BCH:
 $ ts-node cc_covenant_v1_testnet.ts finishUnlock alice 1 0 \
 	e01bba67a1274c028b2926481a2bacbbf1d147032f334b30731629fd71ddac1b:0
 
-> e01bba67a1274c028b2926481a2bacbbf1d147032f334b30731629fd71ddac1b:0
 >> init cc_covenant, args:
 0) opAddrsHash: 0b7e1c5142d4b6f910bc371122e86fdf2e7d3f9a
 1) receiverPkh: e473f4c21fea82454eb89b698ba84c2ae3d068a8
