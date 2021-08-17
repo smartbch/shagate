@@ -23,7 +23,7 @@ const hdNode = bitbox.HDNode.fromSeed(rootSeed);
 const alice = bitbox.HDNode.toKeyPair(bitbox.HDNode.derive(hdNode, 0));
 const alicePk = bitbox.ECPair.toPublicKey(alice);
 const alicePkh = bitbox.Crypto.hash160(alicePk);
-const aliceCashAddr = bitbox.ECPair.toCashAddress(alice);
+const aliceCashAddr = bitbox.Address.hash160ToCash(alicePkh.toString('hex'), 0x6f);
 
 // operators
 const op0 = bitbox.HDNode.toKeyPair(bitbox.HDNode.derive(hdNode, 100));
@@ -40,7 +40,7 @@ const op2Pkh = bitbox.Crypto.hash160(op2Pk);
 const miner0 = bitbox.HDNode.toKeyPair(bitbox.HDNode.derive(hdNode, 200));
 const miner0Pk = bitbox.ECPair.toPublicKey(miner0);
 const miner0Pkh = bitbox.Crypto.hash160(miner0Pk);
-const miner0CashAddr = bitbox.ECPair.toCashAddress(miner0);
+const miner0CashAddr = bitbox.Address.hash160ToCash(miner0Pkh.toString('hex'), 0x6f);
 
 // Compile the ccCovenant contract to an artifact object
 const artifact = compileFile(path.join(__dirname, 'cc_covenant_v1_testnet.cash'));
@@ -49,99 +49,73 @@ const artifact = compileFile(path.join(__dirname, 'cc_covenant_v1_testnet.cash')
 const txFee = 3000;
 
 yargs(hideBin(process.argv))
-  .command('printOutpointOpRetData <txid> <vout>', 'print outpoint', (yargs: any) => {
-    return yargs.positional('txid', {
-      type: 'string',
-      describe: 'hex txid',
-    }).positional('vout', {
-      type: 'number',
-      describe: 'vout',
-    });
+  // .command('cbtx-info', 'show coinbase tx info', (yargs: any) => {
+  //   return yargs;
+  // }, (argv: any) => {
+  //   const buf = Buffer.from('010000000000000000000000000000000000000000000000000000000000000000ffffffff', 'hex');
+  //   console.log(bitbox.Crypto.hash160(buf).toString('hex'));
+  // })
+  .command('encode-tx-outpoint <txid> <vout>', 'encode outpoint for OP_RETURN', (yargs: any) => {
+    return yargs
+      .positional('txid', {type: 'string', describe: 'txid in hex format'})
+      .positional('vout', {type: 'number', describe: 'vout'});
   }, (argv: any) => {
     const txid = Buffer.from(argv.txid, 'hex');
     const vout = encodeUint32LE(argv.vout);
-    // console.log(txid.toString('hex'));
-    // console.log(vout.toString('hex'));
     console.log(Buffer.concat([txid.reverse(), vout]).toString('hex'));
   })
-  .command('printCBTXinfo', 'print coinbase tx info', (yargs: any) => {
-    return yargs;
-  }, (argv: any) => {
-    const buf = Buffer.from('010000000000000000000000000000000000000000000000000000000000000000ffffffff', 'hex');
-    console.log(bitbox.Crypto.hash160(buf).toString('hex'));
-  })
-  .command('printAliceInfo', 'print alice info', (yargs: any) => {
+  .command('alice-info', 'show alice\'s address and UTXO set', (yargs: any) => {
     return yargs;
   }, (argv: any) => {
     printAliceInfo();
   })
-  .command('printMinerInfo', 'print miner info', (yargs: any) => {
+  .command('miner-info', 'show miner0\'s address and UTXO set', (yargs: any) => {
     return yargs;
   }, (argv: any) => {
     printMinerInfo();
   })
-  .command('printCCDepositInfo', 'print contract info for depositing', (yargs: any) => {
-    return yargs;
-  }, async (argv: any) => {
-    await printCCDepositInfo();
-  })
-  .command('printCCUnlockInfo <receiverPkHex>', 'print contract info for unlocking', (yargs: any) => {
-    return yargs.positional('receiverPkHex', {
-      describe: 'receiver\'s pubkey in hex format, or alice',
-    });
-  }, async (argv: any) => {
-    let receiverPk;
-    if (argv.receiverPkHex == 'alice') {
-      receiverPk = alicePk;
-    } else {
-      receiverPk = Buffer.from(argv.receiverPkHex, 'hex');
-    }
-    await printCCUnlockInfo(receiverPk);
-  })
-  .command('printCCVoteInfo <receiverPkHex> <nYes> <nNo>', 'print contract info for voting', (yargs: any) => {
-    return yargs.positional('receiverPkHex', {
-      describe: 'receiver\'s pubkey in hex format, or alice',
-    }).positional('nYes', {
+  .command('contract-info', 'show contract info', (yargs: any) => {
+    return yargs.option('receiver', {
+      required: true,
+      type: 'string',
+      description: 'bchtest:addr|legacy:addr|hash160:hexstr|alice',
+    }).option('yes-vote', {
+      required: true,
       type: 'number',
       description: 'Yes vote count',
-    }).positional('nNo', {
+    }).option('no-vote', {
+      required: true,
       type: 'number',
       description: 'No vote count',
     });
   }, async (argv: any) => {
-    let receiverPk;
-    if (argv.receiverPkHex == 'alice') {
-      receiverPk = alicePk;
-    } else {
-      receiverPk = Buffer.from(argv.receiverPkHex, 'hex');
-    }
-    await printCCVoteInfo(receiverPk, argv.nYes, argv.nNo);
+    let pkh = getPubKeyHash(argv.receiver);
+    printContractInfo(pkh, argv.yesVote, argv.noVote);
   })
-  .command('initUnlock <receiverPkHex> <utxo>', 'init unlock', (yargs: any) => {
-    return yargs.positional('receiverPkHex', {
-      describe: 'receiver\'s pubkey in hex format, or alice',
-    }).positional('utxo', {
+  .command('init-unlock', 'init unlock', (yargs: any) => {
+    return yargs.option('receiver', {
+      required: true,
+      type: 'string',
+      description: 'bchtest:addr|legacy:addr|hash160:hexstr|alice',
+    }).option('utxo', {
+      required: true,
+      type: 'string',
       describe: 'txid:vout',
     });
   }, async (argv: any) => {
-    let receiverPk;
-    if (argv.receiverPkHex == 'alice') {
-      receiverPk = alicePk;
-    } else {
-      receiverPk = Buffer.from(argv.receiverPkHex, 'hex');
-    }
-    await initUnlock(receiverPk, argv.utxo);
+    let pkh = getPubKeyHash(argv.receiver);
+    await initUnlock(pkh, argv.utxo);
   })
   .command('vote', 'vote', (yargs: any) => {
-    return yargs.option('receiverPkHex', {
+    return yargs.option('receiver', {
       required: true,
       type: 'string',
-      description: 'receiver\'s pubkey in hex format, or alice',
-    }).option('oldYes', {
+      description: 'bchtest:addr|legacy:addr|hash160:hexstr|alice',
+    }).option('old-yes', {
       required: true,
       type: 'number',
       description: 'old Yes vote count',
-    }).option('oldNo', {
+    }).option('old-no', {
       required: true,
       type: 'number',
       description: 'old No vote count',
@@ -149,67 +123,64 @@ yargs(hideBin(process.argv))
       required: true,
       type: 'boolean',
       description: 'vote Yes or No',
-    }).option('votingUtxo', {
+    }).option('voting-utxo', {
       required: true,
       type: 'string',
-      description: 'votingUtxo',
-    }).option('coinbaseUtxo', {
+      description: 'voting UTXO',
+    }).option('coinbase-utxo', {
       required: true,
       type: 'string',
-      description: 'coinbaseUtxo',
-    }).option('cbRawTx', {
+      description: 'miner\'s coinbase UTXO',
+    }).option('coinbase-raw-tx', {
       required: true,
       type: 'string',
-      description: 'cbRawTx',
-    }).option('cbVout', {
+      description: 'miner\'s coinbase raw tx',
+    }).option('coinbase-vout', {
       required: true,
       type: 'number',
-      description: 'cbVout',
-    }).option('opRetPos', {
+      description: 'miner\'s coinbase Vout',
+    }).option('op-return-pos', {
       required: true,
       type: 'number',
-      description: 'opRetPos',
+      description: 'position',
     });
   }, async (argv: any) => {
-    let receiverPk;
-    if (argv.receiverPkHex == 'alice') {
-      receiverPk = alicePk;
-    } else {
-      receiverPk = Buffer.from(argv.receiverPkHex, 'hex');
-    }
-
+    let pkh = getPubKeyHash(argv.receiver);
     await vote(
-      receiverPk,
+      pkh,
       argv.oldYes,
       argv.oldNo,
       argv.agreed,
       argv.votingUtxo,
       argv.coinbaseUtxo,
-      argv.cbRawTx,
-      argv.cbVout,
-      argv.opRetPos);
+      argv.coinbaseRawTx,
+      argv.coinbaseVout,
+      argv.opReturnPos);
   })
-  .command('finishUnlock <keyPairWIF> <nYes> <nNo> <utxo>', 'finish unlock by alice', (yargs: any) => {
-    return yargs.positional('keyPairWIF', {
-      describe: 'receiver\'s key pair in WIF format, or alice',
-    }).positional('nYes', {
+  .command('finish-unlock', 'finish unlock', (yargs: any) => {
+    return yargs.option('receiver-key-pair', {
+      required: true,
+      type: 'string',
+      description: 'wif:str|alice',
+    }).option('yes-vote', {
+      required: true,
       type: 'number',
       description: 'Yes vote count',
-    }).positional('nNo', {
+    }).option('no-vote', {
+      required: true,
       type: 'number',
       description: 'No vote count',
-    }).positional('utxo', {
+    }).option('utxo', {
+      required: true,
       type: 'string',
-      description: 'txid:vout',
+      describe: 'txid:vout',
     });
   }, async (argv: any) => {
-    let keyPair;
-    if (argv.keyPairWIF == 'alice') {
+    let keyPair = argv.receiverKeyPair;
+    if (keyPair == 'alice') {
       keyPair = alice.toWIF();
-    } else {
-      keyPair = argv.keyPairWIF;
     }
-    await finishUnlock(keyPair, argv.nYes, argv.nNo, argv.utxo);
+    await finishUnlock(keyPair, argv.yesVote, argv.noVote, argv.utxo);
   })
   // .option('verbose', {
   //   alias: 'v',
@@ -218,6 +189,8 @@ yargs(hideBin(process.argv))
   // })
   .strictCommands()
   .argv
+
+/* show info */
 
 async function printAliceInfo(): Promise<void> {
   console.log("cash addr:", aliceCashAddr);
@@ -229,23 +202,10 @@ async function printMinerInfo(): Promise<void> {
   const utxos = await provider.getUtxos(miner0CashAddr);
   console.log("utxos:", utxos);
 }
-async function printCCDepositInfo(): Promise<void> {
-  console.log('op0Pkh:', op0Pkh.toString('hex'));
-  console.log('op1Pkh:', op1Pkh.toString('hex'));
-  console.log('op2Pkh:', op2Pkh.toString('hex'));
-
-  const contract = initCovenantForDeposit();
-  console.log('contract address:', contract.address);
-  console.log('contract balance:', await contract.getBalance());
-  console.log('contract UTXOs  :', await contract.getUtxos());
-}
-async function printCCUnlockInfo(receiverPk: Buffer): Promise<void> {
-  const contract = initCovenantForUnlock(receiverPk);
-  console.log('contract address:', contract.address);
-  console.log('contract balance:', await contract.getBalance());
-  console.log('contract UTXOs  :', await contract.getUtxos());
-}
-async function printCCVoteInfo(receiverPk: Buffer, nYes: number, nNo: number): Promise<void> {
+async function printContractInfo(receiverPk: Buffer, nYes: number, nNo: number): Promise<void> {
+  // console.log('op0Pkh:', op0Pkh.toString('hex'));
+  // console.log('op1Pkh:', op1Pkh.toString('hex'));
+  // console.log('op2Pkh:', op2Pkh.toString('hex'));
   const contract = initCovenantForVote(receiverPk, nYes, nNo);
   console.log('contract address:', contract.address);
   console.log('contract balance:', await contract.getBalance());
@@ -254,12 +214,12 @@ async function printCCVoteInfo(receiverPk: Buffer, nYes: number, nNo: number): P
 
 /* call cc_covenant functions */
 
-async function initUnlock(receiverPk: Buffer, utxoIdVout: string): Promise<void> {
+async function initUnlock(receiverPkh: Buffer, utxoIdVout: string): Promise<void> {
   const fromContract = initCovenantForDeposit();
   console.log('fromContract address:', fromContract.address);
   console.log('fromContract balance:', await fromContract.getBalance());
 
-  const toContract = initCovenantForUnlock(receiverPk);
+  const toContract = initCovenantForUnlock(receiverPkh);
   console.log('toContract address  :', toContract.address);
   console.log('toContract balance  :', await toContract.getBalance());
 
@@ -281,7 +241,7 @@ async function initUnlock(receiverPk: Buffer, utxoIdVout: string): Promise<void>
   const tx = await fromContract.functions
     .run(
       new SignatureTemplate(op0), op0Pk, 
-      bitbox.Crypto.hash160(receiverPk), 
+      receiverPkh, 
       op0Pkh, op1Pkh, op2Pkh, 
       Buffer.of(),     // coinbaseTx
       Buffer.alloc(4), // coinbaseVout
@@ -296,7 +256,7 @@ async function initUnlock(receiverPk: Buffer, utxoIdVout: string): Promise<void>
   console.log('transaction details:', stringify(tx));
 }
 
-async function vote(receiverPk: Buffer, 
+async function vote(receiverPkh: Buffer, 
                     oldYes: number, 
                     oldNo: number,
                     agreed: boolean,
@@ -307,11 +267,11 @@ async function vote(receiverPk: Buffer,
                     opRetPos: number): Promise<void> {
 
   console.log("vote...");
-  console.log('receiverPk  :', receiverPk.toString('hex'));
+  console.log('receiverPkh :', receiverPkh.toString('hex'));
   console.log('oldYes      :', oldYes);
   console.log('oldNo       :', oldNo);
   console.log('agreed      :', agreed);
-  console.log('votingUtxo:', votingUtxo);
+  console.log('votingUtxo  :', votingUtxo);
   console.log('coinbaseUtxo:', coinbaseUtxo);
   console.log('cbRawTx     :', cbRawTx);
   console.log('cbVout      :', cbVout);
@@ -320,8 +280,8 @@ async function vote(receiverPk: Buffer,
   const newYes = agreed ? oldYes + 1 : oldYes;
   const newNo =  agreed ? oldNo : oldNo + 1
 
-  const fromContract = initCovenantForVote(receiverPk, oldYes, oldNo);
-  const toContract   = initCovenantForVote(receiverPk, newYes, newNo);
+  const fromContract = initCovenantForVote(receiverPkh, oldYes, oldNo);
+  const toContract   = initCovenantForVote(receiverPkh, newYes, newNo);
 
   let ccUtxos = await fromContract.getUtxos();
   console.log('fromContract UTXOs  :', ccUtxos);
@@ -354,7 +314,7 @@ async function vote(receiverPk: Buffer,
   const tx = await fromContract.functions
     .run(
       new SignatureTemplate(miner0), miner0Pk, 
-      bitbox.Crypto.hash160(receiverPk), 
+      receiverPkh, 
       op0Pkh, op1Pkh, op2Pkh, 
       Buffer.from(cbRawTx, 'hex'), // coinbaseTx
       encodeUint32LE(cbVout),      // coinbaseVout
@@ -383,10 +343,16 @@ async function finishUnlock(receiverWIF: string,
   console.log('fromContract address:', fromContract.address);
   // console.log('fromContract balance:', await fromContract.getBalance());
 
-  const utxos = await fromContract.getUtxos();
+  let utxos = await fromContract.getUtxos();
   console.log('fromContract UTXOs  :', utxos);
   if (utxos.length == 0) {
     console.log("no UTXOs !");
+    return;
+  }
+
+  utxos = utxos.filter(x => x.txid + ':' + x.vout == utxoIdVout);
+  if (utxos.length == 0) {
+    console.log("UTXO not found !");
     return;
   }
 
@@ -416,11 +382,11 @@ function initCovenantForDeposit(): Contract {
   const receiverPkh = Buffer.alloc(20);
   return initCovenantPkh(receiverPkh, 0, 0);
 }
-function initCovenantForUnlock(receiverPk: Buffer): Contract {
-  return initCovenantPk(receiverPk, 0, 0);
+function initCovenantForUnlock(receiverPkh: Buffer): Contract {
+  return initCovenantPkh(receiverPkh, 0, 0);
 }
-function initCovenantForVote(receiverPk: Buffer, nYes: number, nNo: number): Contract {
-  return initCovenantPk(receiverPk, nYes, nNo);
+function initCovenantForVote(receiverPkh: Buffer, nYes: number, nNo: number): Contract {
+  return initCovenantPkh(receiverPkh, nYes, nNo);
 }
 
 function initCovenantPk(receiverPk: Buffer, nYes: number, nNo: number): Contract {
@@ -441,6 +407,26 @@ function initCovenantPkh(receiverPkh: Buffer, nYes: number, nNo: number): Contra
   const contract = new Contract(artifact, cArgs, provider);
   // console.log("redeemScriptHex:", contract.getRedeemScriptHex());
   return contract;
+}
+
+/* helpers */
+
+function getPubKeyHash(receiver: string): Buffer {
+  if (receiver == 'alice') {
+    return alicePkh;
+  }
+
+  let hash160: string;
+  if (receiver.startsWith('bchtest:')) {
+    hash160 = bitbox.Address.cashToHash160(receiver);
+  } else if (receiver.startsWith('legacy:')) {
+    hash160 = bitbox.Address.legacyToHash160(receiver.substr(7));
+  } else if (receiver.startsWith('hash160:')) {
+    hash160 = receiver.substr(8);
+  } else {
+    hash160 = receiver
+  }
+  return Buffer.from(hash160, 'hex');
 }
 
 function encodeUint32LE(n: number): Buffer {
