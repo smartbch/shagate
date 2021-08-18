@@ -66,13 +66,18 @@ yargs(hideBin(process.argv))
   })
   .command('alice-info', 'show alice\'s address and UTXO set', (yargs: any) => {
     return yargs;
-  }, (argv: any) => {
-    printAliceInfo();
+  }, async (argv: any) => {
+    await printAliceInfo();
   })
   .command('miner-info', 'show miner0\'s address and UTXO set', (yargs: any) => {
     return yargs;
-  }, (argv: any) => {
-    printMinerInfo();
+  }, async (argv: any) => {
+    await printMinerInfo();
+  })
+  .command('funding-address', 'show funding address', (yargs: any) => {
+    return yargs;
+  }, async (argv: any) => {
+    printFundingAddress();
   })
   .command('contract-info', 'show contract info', (yargs: any) => {
     return yargs.option('receiver', {
@@ -210,6 +215,13 @@ async function printContractInfo(receiverPk: Buffer, nYes: number, nNo: number):
   console.log('contract address:', contract.address);
   console.log('contract balance:', await contract.getBalance());
   console.log('contract UTXOs  :', await contract.getUtxos());
+}
+function printFundingAddress() {
+  const contract = initCovenantForVote(Buffer.alloc(20), 0, 0);
+  console.log('>> SHA-Gate funding address:');
+  console.log('cash address  :', contract.address);
+  console.log('legacy address:', bitbox.Address.toLegacyAddress(contract.address));
+  console.log('hash160       :', bitbox.Address.cashToHash160(contract.address));
 }
 
 /* call cc_covenant functions */
